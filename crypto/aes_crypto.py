@@ -1,5 +1,5 @@
 from cryptography.fernet import Fernet
-from key_manager import get_key
+from crypto.key_manager import get_key
 
 key = get_key()
 cipher = Fernet(key)

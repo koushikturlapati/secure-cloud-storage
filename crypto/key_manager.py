@@ -18,4 +18,4 @@ def get_key():
     else:
         return generate_key()
 
-key = get_key()
+
