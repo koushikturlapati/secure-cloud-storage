@@ -1,10 +1,9 @@
 __pycache__/
 *.pyc
+
 venv/
 .vscode/
-metadata.json
+
 secret.key
 storage/
-hello.txt
-encrypted.bin
-file_hash.txt
+metadata.json
