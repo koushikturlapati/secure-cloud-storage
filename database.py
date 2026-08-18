@@ -1,15 +1,5 @@
-import mysql.connector
-def get_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="mysql",
-        database="secure_cloud"
-    )
-if __name__ == "__main__":
-    connection = get_connection()
-
-    if connection.is_connected():
-        print("MySQL connection successful!")
-
-    connection.close()
+from sqlalchemy import create_engine
+from sqlalchemy import sessionmaker
+db_url = "mysql+mysqlconnector://root:mysql@localhost:3306/secure_cloud" 
+engine = create_engine(db_url)
+session =sessionmaker(autocommit=False, autoflush=False, bind=engine)
