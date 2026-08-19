@@ -1,16 +1,14 @@
 from fastapi import FASTAPI, FastAPI
-import pydantic
 from pydantic import Basemodel
+from api.dblogin_models import loginModel
+
 
 app = FastAPI()
 
-class LoginModel(pydantic.BaseModel):
-    username: str
-    password: str
+
 @app.post("/login")
-def login(user: LoginRequest):
+def login(user: loginRequest):
    print("Username recived:", user.username)   
    return {
        "success": True,
-       "message": "Request received"
    }
