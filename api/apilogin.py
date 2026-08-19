@@ -33,6 +33,7 @@ def createacc(
 
     db.add(new_user)
     db.commit()
+    db.refresh(new_user)
 
     return {
         "message": "User created"
