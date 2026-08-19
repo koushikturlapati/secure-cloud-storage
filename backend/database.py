@@ -1,15 +1,19 @@
 from sqlalchemy import create_engine
-from sqlalchemy import sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 
 db_url = "mysql+mysqlconnector://root:mysql@localhost:3306/secure_cloud" 
 engine = create_engine(db_url)
-session =sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+    )
 
 
 def get_db():
-    db = session()
+    db = SessionLocal()
     try:
-        yeild db
+        yield db
     finally:
         db.close()
