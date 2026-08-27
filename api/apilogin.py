@@ -1,3 +1,4 @@
+import bcrypt
 from fastapi import FastAPI, Depends
 from backend.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +25,20 @@ def createacc(
         "success": False,
         "message": "Passwords do not match"
     }
+    existing_user = db.query(User).flilter(User.username == user.user).first()
+
+    if existing_user: # checking if the user already exists
+        return {
+            "success" : False,
+            "message" : "User name already exists" 
+        }
+     # password hashing by bcrypt
+    password_bytes = user.password.encode("utf-8")
+    password_hash = bcrypt.hashpw(password_bytes,bcrypt.gensalt())
 
     new_user = User(
     username=user.username,
-    password_hash=user.password
+    password_hash=password_hash.decode("uf-8)")
     )
 
 
@@ -36,6 +47,7 @@ def createacc(
     db.refresh(new_user)
 
     return {
+        
         "message": "User created"
     }
 
@@ -55,7 +67,7 @@ def login(
         
         }
     return{
-        "succes": False,
+        "success": False,
         "message": "User not found"
     }
 
