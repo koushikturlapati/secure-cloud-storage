@@ -18,13 +18,13 @@
             <input type="text"
             id="username"
             name="username"
-            placeholder="Enter your Username" required>
+            placeholder="Enter your username" autocomplete="username" required>
 
             <label for="password">
                 Password:
             </label>
             <input type="password" id="password" name="password" 
-                placeholder="Enter your Password" required>
+            placeholder="Enter your password" autocomplete="current-password" required>
 
             <div class="wrap">
                 <button type="submit">
@@ -32,6 +32,7 @@
                 </button>
             </div>
         </form>
+        <p id="formMessage" class="form-message" role="status" aria-live="polite"></p>
         
         <p>Not registered?
             <a href="createacc.html" style="text-decoration: none;">

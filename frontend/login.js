@@ -1,68 +1,43 @@
-document.getElementById("createAccountForm")
-.addEventListener("submit", async function(event) {
+const loginForm = document.getElementById("loginForm");
+const loginMessage = document.getElementById("formMessage");
 
+function showLoginMessage(message, isError = false) {
+    loginMessage.textContent = message;
+    loginMessage.classList.toggle("error", isError);
+    loginMessage.classList.toggle("success", !isError);
+}
+
+loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const username =
-        document.getElementById("username").value;
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+    const submitButton = loginForm.querySelector("button[type='submit']");
 
-    const password =
-        document.getElementById("password").value;
+    submitButton.disabled = true;
+    showLoginMessage("Logging in...");
 
-    const confirmpassword =
-        document.getElementById("confirmpassword").value;
-
-    const response = await fetch(
-        "http://127.0.0.1:8000/createacc",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({username: username, password: password,confirmpassword: confirmpassword
-            })
-        }
-    );
-
-    const data = await response.json();
-
-    if (data.success) {
-        alert("Account created successfully");
-        window.location.href = "login.html";
-    } else {
-        alert(data.message);
-    }
-});
-
-document.getElementById("loginForm").addEventListener("submit", async function(event) {
-    event.preventDefault(); // Prevents the default page reload
-
-    // Pass the correct IDs to getElementById
-    let username = document.getElementById("username").value;
-    let password = document.getElementById("password").value;
-    
     try {
-        let response = await fetch("http://127.0.0.1:8000/login", {
+        const response = await fetch("http://127.0.0.1:8000/login", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                username: username,
-                password: password
-            })
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
         });
+        const data = await response.json();
 
-        let data = await response.json();
-        
-        if (data.success) {
-            alert("Login done");
-            window.location.href = "dashboard.html";
-        } else {
-            alert("Invalid credentials");
+        if (!response.ok || !data.success) {
+            showLoginMessage(data.message || "Invalid username or password.", true);
+            return;
         }
+
+        showLoginMessage("Login successful. Redirecting...");
+        window.setTimeout(() => {
+            window.location.href = "dashboard.html";
+        }, 500);
     } catch (error) {
         console.error("Error during login:", error);
-        alert("Server error occurred.");
+        showLoginMessage("Could not reach the server. Please try again.", true);
+    } finally {
+        submitButton.disabled = false;
     }
 });

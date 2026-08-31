@@ -58,8 +58,26 @@ button {
     font-size: 16px;
 }
 
+button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
 .wrap {
     display: flex;
     justify-content: center;
     align-items: center;
+}
+
+.form-message {
+    min-height: 1.5em;
+    margin: 0.5rem 0;
+}
+
+.form-message.error {
+    color: #b42318;
+}
+
+.form-message.success {
+    color: #18713a;
 }

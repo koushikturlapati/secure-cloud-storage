@@ -1,7 +1,8 @@
 import bcrypt
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from backend.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from backend.models import User
 from api.dblogin_models import LoginRequest, Createaccount
@@ -20,35 +21,50 @@ def createacc(
     user: Createaccount,
     db: Session = Depends(get_db)
 ):
+    username = user.username.strip()
+
+    if not username:
+        return {
+            "success": False,
+            "message": "Username is required"
+        }
+
     if user.password != user.confirmpassword:
         return {
-        "success": False,
-        "message": "Passwords do not match"
-    }
-    existing_user = db.query(User).flilter(User.username == user.user).first()
-
-    if existing_user: # checking if the user already exists
-        return {
-            "success" : False,
-            "message" : "User name already exists" 
+            "success": False,
+            "message": "Passwords do not match"
         }
-     # password hashing by bcrypt
+
+    existing_user = db.query(User).filter(User.username == username).first()
+
+    if existing_user:
+        return {
+            "success": False,
+            "message": "Username already exists"
+        }
+
     password_bytes = user.password.encode("utf-8")
-    password_hash = bcrypt.hashpw(password_bytes,bcrypt.gensalt())
+    password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
     new_user = User(
-    username=user.username,
-    password_hash=password_hash.decode("uf-8)")
+        username=username,
+        password_hash=password_hash
     )
 
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+    except IntegrityError:
+        db.rollback()
+        return {
+            "success": False,
+            "message": "Username already exists"
+        }
 
     return {
-        
-        "message": "User created"
+        "success": True,
+        "message": "Account created"
     }
 
 @app.post("/login")
@@ -56,18 +72,18 @@ def login(
     user: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    db_user = db.query(User).filter(User.username == user.username).first()
+    username = user.username.strip()
+    db_user = db.query(User).filter(User.username == username).first()
 
-
-    if db_user:
-        print("User found:", db_user.username) 
+    if db_user and bcrypt.checkpw(
+        user.password.encode("utf-8"), db_user.password_hash.encode("utf-8")
+    ):
         return {
             "success": True,
-            "message": "Login successfull"
-        
+            "message": "Login successful"
         }
-    return{
+    return {
         "success": False,
-        "message": "User not found"
+        "message": "Invalid username or password"
     }
 
