@@ -16,6 +16,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# JWT
+
+
+
 @app.post("/createacc")
 def createacc(
     user: Createaccount,

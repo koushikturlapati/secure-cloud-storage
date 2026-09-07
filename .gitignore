@@ -1,6 +1,11 @@
 __pycache__/
 *.pyc
 
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+
 venv/
 .vscode/
 
