@@ -1,0 +1,68 @@
+<!DOCTYPE html> 
+<html lang="en"> 
+<head> 
+    <meta charset="UTF-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>Dashboard</title> 
+</head> 
+<body style="font-family: Arial, sans-serif; padding: 20px; position: relative;"> 
+    
+    <!-- Logout Button -->
+    <button id="logoutBtn" onclick="toggleLogoutBox()" style="position: absolute; top: 10px; right: 20px; background-color: #dc3545; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;">Logout</button>
+
+    <!-- Logout Confirmation Box -->
+    <div id="logoutBox" style="display: none; position: absolute; top: 50px; right: 20px; background: white; border: 1px solid #ccc; padding: 20px; box-shadow: 0px 4px 8px rgba(0,0,0,0.1); border-radius: 5px; width: 220px; z-index: 10; text-align: center;">
+        <h3 style="margin-top: 0;">Are you sure?</h3>
+        <p style="font-size: 14px; color: #555;">You will be signed out of your secure cloud storage.</p>
+        <div style="display: flex; justify-content: space-between; margin-top: 15px;">
+            <button onclick="confirmLogout()" style="width: 45%; background-color: #dc3545; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer;">Yes, Log out</button>
+            <button onclick="toggleLogoutBox()" style="width: 45%; background-color: #6c757d; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer;">Cancel</button>
+        </div>
+    </div>
+
+    <h1 style="text-align: center; color: rgb(13, 0, 255);">Secure cloud storage</h1> 
+    
+    <h2>Add your files here in the grey space</h2> 
+    
+    <div style=" width: 100%; max-width: 1200px; height: 350px; background-color: #D9D9D9; border: 2px dashed #a0a0a0; display: flex; align-items: center; justify-content: center; margin-top: 40px; "> 
+        <p style="font-size: 20px; color: #333333; font-weight: bold; margin: 0;">Drop files here</p> 
+    </div> 
+    
+    <table style="width: 100%; max-width: 1200px; text-align: left; margin-top: 40px; margin-bottom: 40px; border-collapse: collapse;"> 
+        <h3>Your Files</h3> 
+        <tr> 
+            <th>FileName</th> 
+            <th>size</th> 
+            <th>Security</th> 
+            <th>Actions</th> 
+        </tr> 
+        <tr> 
+            <td>My lovestory</td> 
+            <td>2.5MB</td> 
+            <td>Encrypted</td> 
+            <td> <button>Download</button> <button>Edit</button> <button>Delete</button> </td> 
+        </tr> 
+    </table> 
+    
+    <p>Storage Used 2.5mb / 10gb</p> 
+
+    <!-- JavaScript to toggle and handle logout -->
+    <script>
+        function toggleLogoutBox() {
+            var box = document.getElementById('logoutBox');
+            if (box.style.display === 'none') {
+                box.style.display = 'block';
+            } else {
+                box.style.display = 'none';
+            }
+        }
+
+        function confirmLogout() {
+            alert("Logging out...");
+            // You can redirect to a login page here, for example:
+            // window.location.href = "login.html";
+        }
+    </script>
+    
+</body> 
+</html>
