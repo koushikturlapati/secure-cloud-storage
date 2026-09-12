@@ -1,20 +1,24 @@
 import os
-from datetime import datetime, timedelata, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 import bcrypt
 import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI,HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from backend.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from backend.models import User
-from api.dblogin_models import LoginRequest, Createaccount
+from api.dblogin_models import Createaccount, LoginRequest, Token
 
 
 
 load_dotenv()
-SECRECT_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable is not set!")
 
@@ -27,62 +31,65 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # This API uses Bearer tokens, not cookies.  Credentials cannot safely be
+    # combined with a wildcard origin in browsers.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")    
-
-
-def  create_access_token(username:str):
+def create_access_token(username: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
     payload = {
         "sub": username,
-        "exp": expire
+        "exp": expire,
     }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    token = jwt.encode(payload,SECRET_KEY, algorithm=ALGORITHM)
-    
 
- 
 def get_current_user(
-        token: str = Depends(oauth2_scheme),
-        db: Session = Depends(get_db)
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
 ):
-    credentails_exception = HTTPException
-    (
-        status_code=status.HTTP_401UNAUTHORIZED,
-     detail="Could not validate credentials",
-     headers={"WWW-Authenticate", "Bearer"}
-
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(
             token,
-            SECERET_KEY,
-            algorithms=[ALGORITHM]
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
         )
-        username =payload.get("sub")
+        username = payload.get("sub")
         if username is None:
-            raise credential_exeception
+            raise credentials_exception
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"}
-        )   
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except jwt.InvalidTokenError:
-        raise credntials_exception
-    user = (
-        db.query(User.filter(User.username == username).first())
-    )
+        raise credentials_exception
+
+    user = db.query(User).filter(User.username == username).first()
 
     if user is None:
-        raise credtenials_exception
+        raise credentials_exception
+    return user
+
+
+def authenticate_user(username: str, password: str, db: Session) -> User | None:
+    user = db.query(User).filter(User.username == username.strip()).first()
+    if user is None or not bcrypt.checkpw(
+        password.encode("utf-8"), user.password_hash.encode("utf-8")
+    ):
+        return None
     return user
 
 @app.post("/createacc")
@@ -141,18 +148,43 @@ def login(
     user: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    username = user.username.strip()
-    db_user = db.query(User).filter(User.username == username).first()
+    db_user = authenticate_user(user.username, user.password, db)
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    if db_user and bcrypt.checkpw(
-        user.password.encode("utf-8"), db_user.password_hash.encode("utf-8")
-    ):
-        return {
-            "success": True,
-            "message": "Login successful"
-        }
     return {
-        "success": False,
-        "message": "Invalid username or password"
+        "success": True,
+        "message": "Login successful",
+        "access_token": create_access_token(db_user.username),
+        "token_type": "bearer",
     }
 
+
+@app.post("/token", response_model=Token)
+def issue_oauth_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """OAuth2 password-flow endpoint used by the OpenAPI Authorize dialog."""
+    user = authenticate_user(form_data.username, form_data.password, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return Token(access_token=create_access_token(user.username))
+
+
+@app.get("/me")
+def read_current_user(current_user: User = Depends(get_current_user)):
+    return {"id": current_user.id, "username": current_user.username}
+
+
+# Add this last so API routes above take precedence over frontend file names.
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

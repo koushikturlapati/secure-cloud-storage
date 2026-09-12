@@ -26,10 +26,22 @@ loginForm.addEventListener("submit", async (event) => {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-            showLoginMessage(data.message || "Invalid username or password.", true);
+            showLoginMessage(
+                data.detail || data.message || "Invalid username or password.",
+                true
+            );
             return;
         }
 
+        if (!data.access_token) {
+            showLoginMessage("The server did not return an access token.", true);
+            return;
+        }
+
+        // Keep the Bearer token only for the current browser session.  API
+        // requests to protected endpoints should send it as an Authorization
+        // header, for example: `Bearer ${sessionStorage.access_token}`.
+        sessionStorage.setItem("access_token", data.access_token);
         showLoginMessage("Login successful. Redirecting...");
         window.setTimeout(() => {
             window.location.href = "dashboard.html";

@@ -48,6 +48,10 @@
 
     <!-- JavaScript to toggle and handle logout -->
     <script>
+        if (!sessionStorage.getItem("access_token")) {
+            window.location.replace("index.html");
+        }
+
         function toggleLogoutBox() {
             var box = document.getElementById('logoutBox');
             if (box.style.display === 'none') {
@@ -58,9 +62,8 @@
         }
 
         function confirmLogout() {
-            alert("Logging out...");
-            // You can redirect to a login page here, for example:
-            // window.location.href = "login.html";
+            sessionStorage.removeItem("access_token");
+            window.location.replace("index.html");
         }
     </script>
     
