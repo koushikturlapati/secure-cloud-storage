@@ -1,18 +1,19 @@
 import os
+import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
 import bcrypt
 import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from backend.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from backend.models import User
+from backend.models import User, StoredFile, Folders, FilePermission, RefreshToken 
 from api.dblogin_models import Createaccount, LoginRequest, Token
 
 
@@ -27,6 +28,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 app = FastAPI()
+
+
+STORAGE_DIR = Path(__file__).resolve().parents[1] / "storage"
 
 app.add_middleware(
     CORSMiddleware,
@@ -185,6 +189,48 @@ def read_current_user(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "username": current_user.username}
 
 
-# Add this last so API routes above take precedence over frontend file names.
+@app.post("/files/upload")
+def upload_file():
+
+@app.get("/files/")
+def list_files():
+
+@app.get("/files/{file_id}")
+def download_files():
+
+
+
+@app.delete("/files/{file_id}")
+def delete_files():
+
+
+@app.post("/folders")
+def create_folder():
+
+@app.get("/folders")
+def list_folder():
+
+@app.delete("/folders/{folder_id}")
+def delete_folder():
+
+@app.post("/files/{file_id}/share")
+def share_file():
+
+
+@app.get("/files/{file_id}/permissions")
+def view_permission():
+
+
+@app.delete("/files/{file_id}/share/{user_id}")
+def remove_permisssion():
+
+@app.post("/refresh")
+def new_access_token():
+
+
+@app.post("/logout")
+def ():
+
+#shows where my frontend exits
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
