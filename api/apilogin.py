@@ -31,6 +31,7 @@ app = FastAPI()
 
 
 STORAGE_DIR = Path(__file__).resolve().parents[1] / "storage"
+STORAGE_DIR.mkdir(parent=True, exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -186,14 +187,25 @@ def issue_oauth_token(
 
 @app.get("/me")
 def read_current_user(current_user: User = Depends(get_current_user)):
-    return {"id": current_user.id, "username": current_user.username}
+    return {"id": current_user.i  d, "username": current_user.username}
 
 
 @app.post("/files/upload")
-def upload_file():
+def upload_file(
+    file: UploadFile =File(...),
+    current_user: User = Depends(get_curent_user),
+    db: Session =Depends()
+):
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_401_BADREQUEST,
+            detail="Filename is requried"
+        )
 
 @app.get("/files/")
-def list_files():
+def list_files(
+    list_files: 
+):
 
 @app.get("/files/{file_id}")
 def download_files():
