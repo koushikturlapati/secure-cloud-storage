@@ -18,3 +18,11 @@ def decrypt_file(encrypted_data):
     decrypted_data = cipher.decrypt(encrypted_data)
 
     return decrypted_data
+
+
+def encrypt_data(data):
+    return cipher.encrypt(data)
+
+
+def decrypt_data(encrypted_data):
+    return cipher.decrypt(encrypted_data)

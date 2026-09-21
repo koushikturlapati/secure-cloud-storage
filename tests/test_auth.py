@@ -15,7 +15,7 @@ os.environ.setdefault("DB_HOST", "127.0.0.1")
 os.environ.setdefault("DB_PORT", "3306")
 os.environ.setdefault("DB_NAME", "test")
 
-from api import apilogin as auth  # noqa: E402
+from api import main as auth  # noqa: E402
 
 
 class TestUser:
