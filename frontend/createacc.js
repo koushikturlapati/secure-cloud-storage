@@ -24,7 +24,7 @@ createAccountForm.addEventListener("submit", async (event) => {
     showMessage("Creating your account...");
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/createacc", {
+        const response = await fetch("/createacc", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username, password, confirmpassword })

@@ -12,3 +12,4 @@ venv/
 secret.key
 storage/
 metadata.json
+*.sql

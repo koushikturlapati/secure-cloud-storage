@@ -98,7 +98,7 @@ function saveFiles() {
 
 async function loadFiles() {
     const token = getToken();
-    const response = await fetch("http://127.0.0.1:8000/files/", {
+    const response = await fetch("/files/", {
         headers: { Authorization: `Bearer ${token}` }
     });
     if (!response.ok) throw new Error("Could not load files");
@@ -115,7 +115,7 @@ function toggleLogoutBox() {
 async function confirmLogout() {
     const refreshToken = sessionStorage.getItem("refresh_token");
     if (refreshToken) {
-        await fetch("http://127.0.0.1:8000/logout", {
+        await fetch("/logout", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ refresh_token: refreshToken })
@@ -135,7 +135,7 @@ async function fetchCurrentUser() {
     }
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/me", {
+        const response = await fetch("/me", {
             headers: {
                 Authorization: `Bearer ${token}`
             }
@@ -170,7 +170,7 @@ async function uploadToServer(file) {
     formData.append("file", file);
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/files/upload", {
+        const response = await fetch("/files/upload", {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${token}`
@@ -250,7 +250,7 @@ function attachTableEvents() {
         if (!file) return;
 
         if (action === "delete") {
-            const response = await fetch(`http://127.0.0.1:8000/files/${id}`, {
+            const response = await fetch(`/files/${id}`, {
                 method: "DELETE",
                 headers: { Authorization: `Bearer ${getToken()}` }
             });
@@ -264,7 +264,7 @@ function attachTableEvents() {
         if (action === "edit") {
             const newName = window.prompt("Rename file:", file.name);
             if (newName && newName.trim()) {
-                const response = await fetch(`http://127.0.0.1:8000/files/${id}`, {
+                const response = await fetch(`/files/${id}`, {
                     method: "PATCH",
                     headers: {
                         "Content-Type": "application/json",
@@ -281,7 +281,7 @@ function attachTableEvents() {
         }
 
         if (action === "download") {
-            const response = await fetch(`http://127.0.0.1:8000/files/${id}`, {
+            const response = await fetch(`/files/${id}`, {
                 headers: { Authorization: `Bearer ${getToken()}` }
             });
             if (response.ok) {
