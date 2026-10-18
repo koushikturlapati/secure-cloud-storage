@@ -17,7 +17,13 @@ if not database_url:
     if all((db_user, db_password, db_host, db_port, db_name)):
         database_url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
     else:
-        database_path = Path(__file__).resolve().parents[1] / "database" / "app.db"
+        database_path = Path(
+            os.getenv(
+                "SQLITE_PATH",
+                Path(__file__).resolve().parents[1] / "database" / "app.db",
+            )
+        )
+        database_path.parent.mkdir(parents=True, exist_ok=True)
         database_url = f"sqlite:///{database_path}"
 
 connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}

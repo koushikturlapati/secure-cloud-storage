@@ -1,5 +1,6 @@
 import os
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -43,7 +44,9 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 app = FastAPI()
 
 
-STORAGE_DIR = Path(__file__).resolve().parents[1] / "storage"
+STORAGE_DIR = Path(
+    os.getenv("STORAGE_DIR", Path(__file__).resolve().parents[1] / "storage")
+)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 app.add_middleware(
@@ -57,6 +60,11 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 
 def create_access_token(username: str) -> str:
@@ -326,8 +334,12 @@ def download_files(file_id: int, current_user: User = Depends(get_current_user),
     file_path = STORAGE_DIR / file.storage_name
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File data not found")
+    file_data = decrypt_data(file_path.read_bytes())
+    actual_hash = hashlib.sha256(file_data).hexdigest()
+    if not hmac.compare_digest(actual_hash, file.sha256):
+        raise HTTPException(status_code=500, detail="Stored file integrity check failed")
     return Response(
-        content=decrypt_data(file_path.read_bytes()),
+        content=file_data,
         media_type=file.content_type or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{file.filename}"'},
     )

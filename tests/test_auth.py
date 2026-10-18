@@ -1,6 +1,11 @@
 import os
+import hashlib
+import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import patch
 
 import bcrypt
 import jwt
@@ -76,6 +81,64 @@ class AuthenticationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("<h3 style=\"text-align: center;\">Login</h3>", response.text)
+
+    def test_health_endpoint_reports_ok(self):
+        response = self.client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_download_rejects_content_with_an_invalid_integrity_hash(self):
+        file_data = b"file contents"
+        stored_file = SimpleNamespace(
+            storage_name="stored.txt",
+            filename="download.txt",
+            content_type="text/plain",
+            sha256=hashlib.sha256(b"unexpected contents").hexdigest(),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / stored_file.storage_name).write_bytes(b"encrypted")
+            with (
+                patch.object(auth, "STORAGE_DIR", Path(temp_dir)),
+                patch.object(auth, "get_accessible_file", return_value=stored_file),
+                patch.object(auth, "decrypt_data", return_value=file_data),
+                patch.dict(
+                    auth.app.dependency_overrides,
+                    {auth.get_current_user: lambda: TestUser()},
+                ),
+            ):
+                response = self.client.get("/files/1")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"], "Stored file integrity check failed"
+        )
+
+    def test_download_returns_content_when_integrity_hash_matches(self):
+        file_data = b"file contents"
+        stored_file = SimpleNamespace(
+            storage_name="stored.txt",
+            filename="download.txt",
+            content_type="text/plain",
+            sha256=hashlib.sha256(file_data).hexdigest(),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / stored_file.storage_name).write_bytes(b"encrypted")
+            with (
+                patch.object(auth, "STORAGE_DIR", Path(temp_dir)),
+                patch.object(auth, "get_accessible_file", return_value=stored_file),
+                patch.object(auth, "decrypt_data", return_value=file_data),
+                patch.dict(
+                    auth.app.dependency_overrides,
+                    {auth.get_current_user: lambda: TestUser()},
+                ),
+            ):
+                response = self.client.get("/files/1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, file_data)
 
     def test_oauth_token_and_protected_endpoint(self):
         token_response = self.client.post(
