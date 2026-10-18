@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      SQLITE_PATH: /data/app.db
+      STORAGE_DIR: /data/storage
+      ENCRYPTION_KEY_FILE: /data/secret.key
+    volumes:
+      - app-data:/data
+
+volumes:
+  app-data:
