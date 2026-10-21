@@ -8,4 +8,4 @@ PyJWT
 cryptography
 python-multipart
 boto3
-httpx2
+httpx
