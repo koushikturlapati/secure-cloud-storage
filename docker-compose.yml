@@ -6,9 +6,14 @@ services:
       - "8000:8000"
     environment:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      SQLITE_PATH: /data/app.db
+      DB_USER: $ {DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
       STORAGE_DIR: /data/storage
       ENCRYPTION_KEY_FILE: /data/secret.key
+    
     volumes:
       - app-data:/data
 
