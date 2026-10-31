@@ -1,45 +1,28 @@
 import os
 import hashlib
 import hmac
-import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import bcrypt
-import jwt
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status, UploadFile, File
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import Depends, FastAPI, Header, HTTPException, status, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response
 from backend.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from backend.models import User, StoredFile, Folders, FilePermission, RefreshToken 
+from backend.models import User, StoredFile, Folders, FilePermission 
 from api.dblogin_models import (
     Createaccount,
     FolderRequest,
     LoginRequest,
-    RefreshRequest,
     RenameFileRequest,
     ShareRequest,
-    Token,
 )
 from crypto.aes_crypto import decrypt_data, encrypt_data
 
 load_dotenv()
-secret_key_file = Path(__file__).resolve().parents[1] / "secret.key"
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY and secret_key_file.is_file():
-    SECRET_KEY = secret_key_file.read_text(encoding="utf-8").strip()
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY environment variable is not set!")
-
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
-
 
 app = FastAPI()
 
@@ -52,14 +35,10 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    # This API uses Bearer tokens, not cookies.  Credentials cannot safely be
-    # combined with a wildcard origin in browsers.
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 @app.get("/health")
@@ -67,71 +46,30 @@ def health_check():
     return {"status": "ok"}
 
 
-def create_access_token(username: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {
-        "sub": username,
-        "exp": expire,
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def create_refresh_token(user_id: int, db: Session) -> str:
-    if not hasattr(db, "add") or not hasattr(db, "commit"):
-        return None
-    raw_token = secrets.token_urlsafe(32)
-    refresh_token = RefreshToken(
-        user_id=user_id,
-        token_hash=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
-    )
-    db.add(refresh_token)
-    db.commit()
-    return raw_token
-
-
-def refresh_token_record(raw_token: str, db: Session) -> RefreshToken | None:
-    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-    record = db.query(RefreshToken).filter(
-        RefreshToken.token_hash == token_hash,
-        RefreshToken.revoked.is_(False),
-    ).first()
-    if record is None or record.expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
-        return None
-    return record
-
-
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    x_username: str | None = Header(None, alias="X-Username"),
+    authorization: str | None = Header(None),
     db: Session = Depends(get_db),
-):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM],
-        )
-        username = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except jwt.ExpiredSignatureError:
+) -> User:
+    username = x_username
+    if not username and authorization:
+        if authorization.lower().startswith("bearer "):
+            username = authorization[7:].strip()
+        else:
+            username = authorization.strip()
+
+    if not username:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Authentication credentials were not provided",
         )
-    except jwt.InvalidTokenError:
-        raise credentials_exception
 
-    user = db.query(User).filter(User.username == username).first()
-
+    user = db.query(User).filter(User.username == username.strip()).first()
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
     return user
 
 
@@ -219,35 +157,16 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
     return {
         "success": True,
         "message": "Login successful",
-        "access_token": create_access_token(db_user.username),
-        "token_type": "bearer",
-        "refresh_token": create_refresh_token(db_user.id, db),
+        "user": {
+            "id": db_user.id,
+            "username": db_user.username,
+        },
     }
-
-
-@app.post("/token", response_model=Token)
-def issue_oauth_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-):
-    """OAuth2 password-flow endpoint used by the OpenAPI Authorize dialog."""
-    user = authenticate_user(form_data.username, form_data.password, db)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return Token(
-        access_token=create_access_token(user.username),
-        refresh_token=create_refresh_token(user.id, db),
-    )
 
 
 @app.get("/me")
@@ -456,23 +375,9 @@ def remove_permisssion(file_id: int, user_id: int, current_user: User = Depends(
     db.commit()
     return {"success": True}
 
-@app.post("/refresh")
-def new_access_token(request: RefreshRequest, db: Session = Depends(get_db)):
-    record = refresh_token_record(request.refresh_token, db)
-    if record is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-    user = db.query(User).filter(User.id == record.user_id).first()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return Token(access_token=create_access_token(user.username))
-
 @app.post("/logout")
-def logout(request: RefreshRequest, db: Session = Depends(get_db)):
-    record = refresh_token_record(request.refresh_token, db)
-    if record is not None:
-        record.revoked = True
-        db.commit()
-    return {"success": True}
+def logout():
+    return {"success": True, "message": "Logged out successfully"}
 
 
 

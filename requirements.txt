@@ -4,7 +4,6 @@ sqlalchemy
 pymysql
 python-dotenv
 bcrypt
-PyJWT
 cryptography
 python-multipart
 boto3

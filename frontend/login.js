@@ -33,18 +33,14 @@ loginForm.addEventListener("submit", async (event) => {
             return;
         }
 
-        if (!data.access_token) {
-            showLoginMessage("The server did not return an access token.", true);
-            return;
+        const loggedInUser = data.user ? data.user.username : username;
+        sessionStorage.setItem("username", loggedInUser);
+        if (data.user && data.user.id) {
+            sessionStorage.setItem("user_id", data.user.id);
         }
+        sessionStorage.removeItem("access_token");
+        sessionStorage.removeItem("refresh_token");
 
-        // Keep the Bearer token only for the current browser session.  API
-        // requests to protected endpoints should send it as an Authorization
-        // header, for example: `Bearer ${sessionStorage.access_token}`.
-        sessionStorage.setItem("access_token", data.access_token);
-        if (data.refresh_token) {
-            sessionStorage.setItem("refresh_token", data.refresh_token);
-        }
         showLoginMessage("Login successful. Redirecting...");
         window.setTimeout(() => {
             window.location.href = "dashboard.html";

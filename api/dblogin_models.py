@@ -12,16 +12,6 @@ class Createaccount(BaseModel):
     confirmpassword:str
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    refresh_token: Optional[str] = None
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 class ShareRequest(BaseModel):
     username: str
     permission: str = Field(default="read", pattern="^(read|write)$")

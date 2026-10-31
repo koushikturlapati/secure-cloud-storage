@@ -1,14 +1,12 @@
 import os
 import hashlib
 import tempfile
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 import bcrypt
-import jwt
 from fastapi.testclient import TestClient
 
 # The database engine is configured during the API import.  These values only
@@ -62,7 +60,7 @@ class AuthenticationTests(TestCase):
     def tearDownClass(cls):
         auth.app.dependency_overrides.clear()
 
-    def test_json_login_returns_a_signed_bearer_token(self):
+    def test_login_success_with_bcrypt_password(self):
         response = self.client.post(
             "/login", json={"username": "alice", "password": "correct-password"}
         )
@@ -70,11 +68,10 @@ class AuthenticationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body["success"])
-        self.assertEqual(body["token_type"], "bearer")
-        self.assertEqual(
-            jwt.decode(body["access_token"], auth.SECRET_KEY, algorithms=[auth.ALGORITHM])["sub"],
-            "alice",
-        )
+        self.assertEqual(body["message"], "Login successful")
+        self.assertEqual(body["user"]["username"], "alice")
+        self.assertNotIn("access_token", body)
+        self.assertNotIn("token_type", body)
 
     def test_root_serves_the_login_page(self):
         response = self.client.get("/")
@@ -140,31 +137,27 @@ class AuthenticationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, file_data)
 
-    def test_oauth_token_and_protected_endpoint(self):
-        token_response = self.client.post(
-            "/token", data={"username": "alice", "password": "correct-password"}
-        )
-
-        self.assertEqual(token_response.status_code, 200)
-        token = token_response.json()["access_token"]
-        response = self.client.get("/me", headers={"Authorization": f"Bearer {token}"})
-
+    def test_protected_endpoint_with_header_auth(self):
+        # Test with X-Username header
+        response = self.client.get("/me", headers={"X-Username": "alice"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"id": 1, "username": "alice"})
 
-    def test_invalid_and_expired_tokens_are_rejected(self):
+        # Test with Authorization header
+        response2 = self.client.get("/me", headers={"Authorization": "Bearer alice"})
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json(), {"id": 1, "username": "alice"})
+
+    def test_invalid_credentials_and_unauthenticated_requests_are_rejected(self):
         invalid_login = self.client.post(
             "/login", json={"username": "alice", "password": "wrong-password"}
         )
         self.assertEqual(invalid_login.status_code, 401)
+        self.assertEqual(invalid_login.json()["detail"], "Invalid username or password")
 
-        expired_token = jwt.encode(
-            {"sub": "alice", "exp": datetime.now(timezone.utc) - timedelta(minutes=1)},
-            auth.SECRET_KEY,
-            algorithm=auth.ALGORITHM,
+        unauthenticated_response = self.client.get("/me")
+        self.assertEqual(unauthenticated_response.status_code, 401)
+        self.assertEqual(
+            unauthenticated_response.json()["detail"],
+            "Authentication credentials were not provided",
         )
-        expired_response = self.client.get(
-            "/me", headers={"Authorization": f"Bearer {expired_token}"}
-        )
-        self.assertEqual(expired_response.status_code, 401)
-        self.assertEqual(expired_response.json()["detail"], "Token has expired")

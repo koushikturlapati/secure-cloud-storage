@@ -18,12 +18,25 @@ const state = {
 };
 
 function redirectToLogin() { 
+    sessionStorage.removeItem("username");
+    sessionStorage.removeItem("user_id");
     sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("refresh_token");
     window.location.replace("index.html");
 }
 
-function getToken() {
-    return sessionStorage.getItem("access_token");
+function getUsername() {
+    return sessionStorage.getItem("username");
+}
+
+function getAuthHeaders(customHeaders = {}) {
+    const username = getUsername();
+    const headers = { ...customHeaders };
+    if (username) {
+        headers["X-Username"] = username;
+        headers["Authorization"] = `Bearer ${username}`;
+    }
+    return headers;
 }
 
 function formatBytes(bytes) {
@@ -97,9 +110,13 @@ function saveFiles() {
 }
 
 async function loadFiles() {
-    const token = getToken();
+    const username = getUsername();
+    if (!username) {
+        redirectToLogin();
+        return;
+    }
     const response = await fetch("/files/", {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: getAuthHeaders()
     });
     if (!response.ok) throw new Error("Could not load files");
     state.files = await response.json();
@@ -113,14 +130,15 @@ function toggleLogoutBox() {
 }
 
 async function confirmLogout() {
-    const refreshToken = sessionStorage.getItem("refresh_token");
-    if (refreshToken) {
+    try {
         await fetch("/logout", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh_token: refreshToken })
+            method: "POST"
         });
+    } catch (e) {
+        console.error("Logout error:", e);
     }
+    sessionStorage.removeItem("username");
+    sessionStorage.removeItem("user_id");
     sessionStorage.removeItem("access_token");
     sessionStorage.removeItem("refresh_token");
     sessionStorage.removeItem("dashboardFiles");
@@ -128,21 +146,19 @@ async function confirmLogout() {
 }
 
 async function fetchCurrentUser() {
-    const token = getToken();
-    if (!token) {
+    const username = getUsername();
+    if (!username) {
         redirectToLogin();
         return;
     }
 
     try {
         const response = await fetch("/me", {
-            headers: {
-                Authorization: `Bearer ${token}`
-            }
+            headers: getAuthHeaders()
         });
 
         if (!response.ok) {
-            throw new Error("Token invalid");
+            throw new Error("User invalid");
         }
 
         const user = await response.json();
@@ -160,8 +176,8 @@ async function fetchCurrentUser() {
 }
 
 async function uploadToServer(file) {
-    const token = getToken();
-    if (!token) {
+    const username = getUsername();
+    if (!username) {
         redirectToLogin();
         return;
     }
@@ -172,9 +188,7 @@ async function uploadToServer(file) {
     try {
         const response = await fetch("/files/upload", {
             method: "POST",
-            headers: {
-                Authorization: `Bearer ${token}`
-            },
+            headers: getAuthHeaders(),
             body: formData
         });
 
@@ -252,7 +266,7 @@ function attachTableEvents() {
         if (action === "delete") {
             const response = await fetch(`/files/${id}`, {
                 method: "DELETE",
-                headers: { Authorization: `Bearer ${getToken()}` }
+                headers: getAuthHeaders()
             });
             if (response.ok) {
                 state.files = state.files.filter((entry) => String(entry.id) !== String(id));
@@ -266,10 +280,7 @@ function attachTableEvents() {
             if (newName && newName.trim()) {
                 const response = await fetch(`/files/${id}`, {
                     method: "PATCH",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${getToken()}`
-                    },
+                    headers: getAuthHeaders({ "Content-Type": "application/json" }),
                     body: JSON.stringify({ filename: newName.trim() })
                 });
                 if (response.ok) {
@@ -282,7 +293,7 @@ function attachTableEvents() {
 
         if (action === "download") {
             const response = await fetch(`/files/${id}`, {
-                headers: { Authorization: `Bearer ${getToken()}` }
+                headers: getAuthHeaders()
             });
             if (response.ok) {
                 const blobUrl = URL.createObjectURL(await response.blob());
@@ -311,8 +322,8 @@ function attachLogoutEvents() {
 }
 
 function initDashboard() {
-    const token = getToken();
-    if (!token) {
+    const username = getUsername();
+    if (!username) {
         redirectToLogin();
         return;
     }
