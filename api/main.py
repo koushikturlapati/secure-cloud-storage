@@ -26,7 +26,6 @@ load_dotenv()
 
 app = FastAPI()
 
-
 STORAGE_DIR = Path(
     os.getenv("STORAGE_DIR", Path(__file__).resolve().parents[1] / "storage")
 )
@@ -192,11 +191,11 @@ async def upload_file(
 
     # reading the file
     file_data = await file.read()
+    encrypted_data, wrapped_key = encrypt_data(file_data)
 
     with open(file_path, "wb") as buffer:
-        buffer.write(encrypt_data(file_data))
-
-
+        buffer.write(encrypted_data)
+    
     #calcutaing the SHA 256 of the file
     sha256_hash = hashlib.sha256(file_data).hexdigest()
 
@@ -206,7 +205,8 @@ async def upload_file(
         filename=file.filename,
         storage_name =storage_name,
         content_type =file.content_type,
-        sha256=sha256_hash 
+        sha256=sha256_hash,
+        wrapped_key=wrapped_key
     )
 
 
@@ -234,8 +234,12 @@ def list_files(current_user: User = Depends(get_current_user), db: Session = Dep
     for file in files.values():
         file_path = STORAGE_DIR / file.storage_name
         size = 0
-        if file_path.is_file():
-            size = len(decrypt_data(file_path.read_bytes()))
+        if file_path.is_file() and file.wrapped_key:
+            encrypted_data = file_path.read_bytes()
+
+            decrypted_data = decrypt_data(encrypted_data,
+            file.wrapped_key)
+            size = len(decrypted_data)
         result.append({
             "id": file.id,
             "name": file.filename,
@@ -251,10 +255,12 @@ def list_files(current_user: User = Depends(get_current_user), db: Session = Dep
 def download_files(file_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     file = get_accessible_file(file_id, current_user, db)
     file_path = STORAGE_DIR / file.storage_name
+    
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File data not found")
     file_data = decrypt_data(file_path.read_bytes())
     actual_hash = hashlib.sha256(file_data).hexdigest()
+    
     if not hmac.compare_digest(actual_hash, file.sha256):
         raise HTTPException(status_code=500, detail="Stored file integrity check failed")
     return Response(
@@ -263,22 +269,34 @@ def download_files(file_id: int, current_user: User = Depends(get_current_user),
         headers={"Content-Disposition": f'attachment; filename="{file.filename}"'},
     )
 
-@app.delete("/files/{file_id}")
-def delete_files(file_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    file = db.query(StoredFile).filter(
-        StoredFile.id == file_id,
-        StoredFile.user_id == current_user.id,
-    ).first()
-    if file is None:
-        raise HTTPException(status_code=404, detail="File not found")
+@app.get("/files/{file_id}")
+def download_files(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    file = get_accessible_file(file_id, current_user, db)
     file_path = STORAGE_DIR / file.storage_name
-    if file_path.is_file():
-        file_path.unlink()
-    db.query(FilePermission).filter(FilePermission.file_id == file.id).delete()
-    db.delete(file)
-    db.commit()
-    return {"success": True}
 
+    if not file_path.is_file():
+        raise HTTPException(status_code=404,detail="File data not found")
+
+    if not file.wrapped_key:
+        raise HTTPException(status_code=409,detail="Encryption key metadata is missing for this file")
+
+    encrypted_data = file_path.read_bytes()
+
+    file_data = decrypt_data(encrypted_data,file.wrapped_key)
+
+    actual_hash = hashlib.sha256(file_data).hexdigest()
+
+    if not hmac.compare_digest(actual_hash, file.sha256):
+        raise HTTPException(status_code=500,detail="Stored file integrity check failed")
+
+    return Response(
+        content=file_data,
+        media_type=file.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{file.filename}"'},)
 
 @app.patch("/files/{file_id}")
 def rename_file(file_id: int, request: RenameFileRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

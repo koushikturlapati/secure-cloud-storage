@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, TIMESTAMP
+from sqlalchemy import Boolean, Column, Integer, String, TIMESTAMP, LargeBinary
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy import ForeignKey
@@ -20,6 +20,7 @@ class StoredFile(Base):
     storage_name = Column(String(255), unique=True, nullable=False)
     content_type = Column(String(255))
     sha256 = Column(String(64), nullable=False)
+    wrapped_key = Column(LargeBinary(255), nullable=True)
     uploaded_at = Column(TIMESTAMP,server_default=func.now())
     
 class Folders(Base):
