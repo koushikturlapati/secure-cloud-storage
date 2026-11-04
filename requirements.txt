@@ -6,5 +6,5 @@ python-dotenv
 bcrypt
 cryptography
 python-multipart
-boto3
 httpx
+pytest

@@ -1,171 +1,258 @@
-# Secure Cloud Storage
+# Secure Cloud Storage — Version 1 (Local-Only)
 
-A small cloud file storage service written in Python. Users create an account,
-upload files, and share them with other users. Every file is encrypted before
-it is written to disk, and its SHA-256 hash is checked on download.
-.
+A secure, local-first encrypted file storage and collaboration application written in Python (FastAPI). Users can register accounts, establish secure cookie-backed sessions, upload files that are encrypted at rest with independent per-file keys, verify file integrity with SHA-256 upon download, organize files into folders, and share access with other registered users under granular read/write permissions.
 
-## Features
+---
 
-- Account creation and login with bcrypt-hashed passwords
-- JWT access tokens (30 minutes) and refresh tokens (7 days, stored as hashes)
-- Upload, list, download, and delete files
-- Encryption at rest with Fernet (AES-128 in CBC mode with HMAC-SHA256)
-- SHA-256 integrity check on every download
-- Folders, and sharing files with other users
-- A simple browser frontend served by the same app
-- Docker image and a deployment guide for a single AWS EC2 instance
+## 1. Project Purpose & Architecture
 
-## Architecture
+Secure Cloud Storage Version 1 is designed to provide local, privacy-focused file storage without dependencies on third-party cloud services (no AWS, S3, KMS, or OAuth2). It combines **envelope encryption** with **secure server-side session management** to ensure confidentiality, integrity, and non-impersonation.
+
+### Architectural Diagram
 
 ```
-Browser (frontend/)
-   │  HTTPS (planned)           Bearer JWT
-   ▼
-FastAPI app (api/main.py)
-   ├── Auth: bcrypt, JWT, refresh tokens
-   ├── Files, folders, sharing endpoints
-   ├── crypto/      Fernet encryption, hashing, key management
-   └── backend/     SQLAlchemy models and database session
-        │                         │
-        ▼                         ▼
-   Encrypted blobs           SQLite (default)
-   (STORAGE_DIR)             or MySQL (DB_* settings)
+┌────────────────────────────────────────────────────────┐
+│             Web Browser (frontend/)                    │
+│   (index.html, dashboard.html, createacc.html, JS)     │
+└──────────────────────────┬─────────────────────────────┘
+                           │ HTTP (HttpOnly, SameSite Session Cookie)
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│               FastAPI Application (api/)               │
+│                                                        │
+│  ├── Routers:                                          │
+│  │    ├── auth.py     (Register, Login, Logout, /me)   │
+│  │    ├── files.py    (Upload, List, Download, Patch)  │
+│  │    ├── folders.py  (Create, List, Delete)           │
+│  │    └── shares.py   (Share, List Perms, Revoke)      │
+│  │                                                     │
+│  ├── Dependencies & Security (dependencies.py)         │
+│  └── Schemas & Validation (schemas.py)                 │
+└───────────────┬──────────────────────────┬─────────────┘
+                │                          │
+                ▼                          ▼
+┌──────────────────────────────┐ ┌───────────────────────┐
+│     Local MySQL Database     │ │   Local File System   │
+│  - users                     │ │  - storage/           │
+│  - auth_sessions (token hash)│ │    (unique UUIDs with │
+│  - stored_files (wrapped key)│ │     ciphertext only)  │
+│  - folders                   │ │  - secret.key         │
+│  - file_permissions          │ │    (master key)       │
+└──────────────────────────────┘ └───────────────────────┘
 ```
 
-Key files:
+---
 
-| Path | Purpose |
-|------|---------|
-| `api/main.py` | FastAPI routes, auth, file and sharing logic |
-| `api/dblogin_models.py` | Pydantic request and response models |
-| `backend/models.py` | Database tables: users, stored files, folders, permissions, refresh tokens |
-| `backend/database.py` | Database connection (SQLite or MySQL) |
-| `crypto/aes_crypto.py` | Fernet encrypt and decrypt helpers |
-| `crypto/key_manager.py` | Loads the encryption key, or creates one on first run |
-| `crypto/hashing.py` | SHA-256 helper |
-| `frontend/` | Login, dashboard, and account pages |
-| `tests/test_auth.py` | Authentication tests |
+## 2. Core Features
 
-## Requirements
+- **Authentication & Sessions:**
+  - Registration with username validation (3–50 chars, alphanumeric + `_-`) and bcrypt password hashing (min 8 chars).
+  - Password verification during login.
+  - Server-side opaque session tokens (`secrets.token_urlsafe(32)`).
+  - Storage of SHA-256 hashes of session tokens in MySQL (`auth_sessions`).
+  - Session tokens issued via `HttpOnly`, `SameSite=Lax`, and `Secure` (when HTTPS) cookies.
+  - Expiration enforcement (24-hour default) and immediate database-backed session revocation on logout.
+  - Strict prevention of user impersonation: `X-Username` and arbitrary `Authorization` headers are not trusted for identity.
+- **Envelope File Encryption at Rest:**
+  - Each uploaded file generates an independent per-file Fernet encryption key.
+  - Plaintext data is encrypted using the file key before writing to disk.
+  - The per-file key is wrapped (encrypted) with a local master Fernet key (`secret.key`).
+  - Wrapped keys are stored securely alongside file metadata in MySQL.
+  - Plaintext files are never written to disk; filenames are randomized UUIDs (`uuid.uuid4().hex`).
+- **Cryptographic File Integrity:**
+  - Plaintext SHA-256 hash calculated during upload and stored in MySQL.
+  - SHA-256 verified in constant-time (`hmac.compare_digest`) upon download and decryption.
+  - Downloads fail and are rejected if ciphertext or metadata has been corrupted or tampered with.
+- **File Management:**
+  - Upload, download, rename, and delete files.
+  - Safe, atomic file writes using temporary files to prevent orphaned or partial files.
+  - Sanitization against path traversal (rejects `../`, null bytes).
+  - File size limits enforced (default 50 MB ceiling).
+- **Hierarchical Folder Management:**
+  - Nested folders with `parent_folder_id` relationships.
+  - Cycle detection prevents circular parent hierarchies.
+  - Prevention of non-empty folder deletion (rejects deleting folders containing subfolders or files).
+- **Granular File Sharing & Permissions:**
+  - File owners can share files with other registered users.
+  - Permission levels:
+    - **READ:** List shared files and download/decrypt them.
+    - **WRITE:** All READ rights + authorized file content replacement (`PUT /files/{file_id}/content`).
+    - **OWNER:** Rename, delete, share, and revoke access. Collaborators cannot delete or claim ownership.
 
-- Python 3.11 or newer
-- Or Docker and Docker Compose
+---
 
-## Quick start (local Python)
+## 3. Technology Stack
 
-```bash
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+- **Python:** 3.11+
+- **Backend Framework:** FastAPI, Starlette, Uvicorn
+- **Database & ORM:** MySQL (local), SQLAlchemy 2.0+
+- **Database Driver:** PyMySQL
+- **Cryptography & Security:** `cryptography` (Fernet symmetric encryption), `bcrypt` (password hashing), Python `hashlib` (SHA-256)
+- **Frontend:** Vanilla HTML5, CSS3, JavaScript (Fetch API with cookie sessions)
+- **Automated Testing:** `pytest`
+
+---
+
+## 4. Local MySQL Configuration
+
+### Database Setup
+
+1. Make sure MySQL Server (8.0+) is installed and running locally.
+2. Connect to MySQL and create the database:
+
+```sql
+CREATE DATABASE IF NOT EXISTS secure_cloud CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+```
+
+3. Run the schema script or migration:
+   - Initial schema: `mysql -u root -p secure_cloud < database/secure_cloud.sql`
+   - Version 1 migrations: `mysql -u root -p secure_cloud < database/migrations/01_v1_migration.sql`
+
+---
+
+## 5. Environment Variables
+
+Configure these variables in a `.env` file in the project root:
+
+```ini
+# MySQL Database Connection Settings
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=secure_cloud
+
+# Optional direct database connection string (overrides DB_* if specified)
+# DATABASE_URL=mysql+pymysql://root:password@127.0.0.1:3306/secure_cloud
+
+# Storage and Encryption Configuration
+STORAGE_DIR=storage
+ENCRYPTION_KEY_FILE=secret.key
+MAX_UPLOAD_SIZE_BYTES=52428800
+```
+
+---
+
+## 6. Installation & Execution
+
+### 1. Create and Activate Virtual Environment
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### 2. Install Dependencies
+
+```powershell
 pip install -r requirements.txt
-
-# Signing secret for JWTs (required)
-export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
-
-uvicorn api.main:app --reload
 ```
 
-Open <http://127.0.0.1:8000>. The health check is at `/health`.
+### 3. Run the Application
 
-On first run the app creates:
-
-- `database/app.db` (SQLite database)
-- `storage/` (encrypted files)
-- `secret.key` (Fernet encryption key)
-
-## Quick start (Docker)
-
-Create a `.env` file in the project root:
-
-```text
-SECRET_KEY=replace-with-a-long-random-secret
+```powershell
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Then run:
+The application is accessible at:
+- **Web Interface:** [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- **Interactive OpenAPI Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Health Check:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
-```bash
-docker compose up --build -d
+---
+
+## 7. API Reference
+
+### Authentication (`api/routers/auth.py`)
+
+| Method | Path | Auth Required | Description |
+|---|---|---|---|
+| `POST` | `/createacc` | No | Register a new user account with bcrypt password |
+| `POST` | `/login` | No | Verify credentials, issue session, set HttpOnly cookie |
+| `POST` | `/logout` | Yes | Revoke server-side session token and clear cookie |
+| `GET` | `/me` | Yes | Return authenticated user details |
+
+### Files (`api/routers/files.py`)
+
+| Method | Path | Auth Required | Description |
+|---|---|---|---|
+| `POST` | `/files/upload` | Yes | Upload, encrypt, and store a file |
+| `GET` | `/files/` | Yes | List files owned by or shared with the user |
+| `GET` | `/files/{file_id}` | Yes | Download, decrypt, and verify SHA-256 integrity |
+| `PATCH` | `/files/{file_id}` | Owner | Rename file (path traversal validated) |
+| `DELETE` | `/files/{file_id}` | Owner | Delete file record and encrypted disk storage |
+| `PUT` | `/files/{file_id}/content` | Owner/Write | Replace file content with new encrypted version |
+
+### Folders (`api/routers/folders.py`)
+
+| Method | Path | Auth Required | Description |
+|---|---|---|---|
+| `POST` | `/folders/` | Yes | Create folder (supports parent_folder_id) |
+| `GET` | `/folders/` | Yes | List folders owned by the authenticated user |
+| `DELETE` | `/folders/{folder_id}` | Owner | Delete folder (blocks non-empty folders) |
+
+### Sharing & Permissions (`api/routers/shares.py`)
+
+| Method | Path | Auth Required | Description |
+|---|---|---|---|
+| `POST` | `/files/{file_id}/share` | Owner | Grant or update read/write permission for a user |
+| `GET` | `/files/{file_id}/permissions` | Owner | View access list and collaborators for a file |
+| `DELETE` | `/files/{file_id}/share/{user_id}` | Owner | Revoke collaborator access |
+
+---
+
+## 8. Encryption & Authentication Workflows
+
+### Envelope Encryption Lifecycle
+
+1. **Upload:**
+   - Raw bytes read into memory (under size limit).
+   - Plaintext SHA-256 computed: `sha256_hash = hashlib.sha256(data).hexdigest()`.
+   - Independent 256-bit Fernet key generated for the file: `file_key = Fernet.generate_key()`.
+   - Data encrypted with `file_key`: `ciphertext = Fernet(file_key).encrypt(data)`.
+   - `file_key` wrapped using local master key: `wrapped_key = Fernet(master_key).encrypt(file_key)`.
+   - `ciphertext` written atomically to `storage/<uuid>.<ext>`.
+   - `wrapped_key` and metadata saved in `stored_files` table.
+2. **Download:**
+   - Authorization verified (user is owner or has read/write permission).
+   - `ciphertext` loaded from `storage/<uuid>.<ext>`.
+   - `file_key` unwrapped using local master key.
+   - Plaintext decrypted with `file_key`.
+   - Computed SHA-256 verified against stored hash in constant time (`hmac.compare_digest`).
+   - Plaintext streamed to client.
+
+### Authentication Lifecycle
+
+1. **Registration:** Username validated against length and character sets; password hashed using `bcrypt.gensalt()`.
+2. **Login:** Credentials verified via `bcrypt.checkpw()`. A 256-bit cryptographically secure random token (`secrets.token_urlsafe(32)`) is generated.
+3. **Storage:** Only the SHA-256 hash of the session token is stored in `auth_sessions`.
+4. **Transport:** The raw token is sent to the browser in an `HttpOnly`, `SameSite=Lax` cookie.
+5. **Authentication Verification:** On every request, `get_current_user` extracts the cookie, computes its SHA-256 hash, verifies the session in MySQL, and ensures it is active and not expired.
+6. **Logout:** Session marked as `revoked=True` in database and cookie deleted from browser.
+
+---
+
+## 9. Automated Testing
+
+The automated test suite runs against an isolated, temporary SQLite database and a sandboxed temporary storage directory, guaranteeing no side-effects on real local files or databases.
+
+Run the entire test suite:
+
+```powershell
+python -m pytest -v
 ```
 
-Open <http://localhost:8000>. Data lives in the `app-data` Docker volume, so it
-survives container rebuilds. See [DEPLOYMENT.md](DEPLOYMENT.md) for the AWS EC2
-steps.
+### Test Coverage Highlights
 
-## Configuration
+- **Authentication (`tests/test_auth.py`):** Registration, duplicate prevention, password validation, cookie issuance, bad passwords, 401 unauthenticated enforcement, header spoofing rejection, session expiration, and session revocation upon logout.
+- **Files (`tests/test_files.py`):** Encrypted disk write verification, file listing, download decryption, SHA-256 verification, corrupted ciphertext rejection, tampered hash rejection, rename validation, atomic deletion, and path traversal prevention.
+- **Folders (`tests/test_folders.py`):** Hierarchy creation, listing, invalid parent validation, rejection of deletion when containing subfolders or files, and clean deletion of empty folders.
+- **Permissions (`tests/test_permissions.py`):** Access rejection for unauthorized users, read-only permissions, write-permission updates, collaborator restriction from owner operations (rename/delete), access revocation, and rejection of self-sharing.
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `SECRET_KEY` | Yes | Read from `secret.key` if present | Signs JWT access tokens |
-| `STORAGE_DIR` | No | `storage/` | Where encrypted files are written |
-| `ENCRYPTION_KEY_FILE` | No | `secret.key` | Path to the Fernet key |
-| `SQLITE_PATH` | No | `database/app.db` | SQLite file location |
-| `DATABASE_URL` | No | — | Full SQLAlchemy URL, overrides everything else |
-| `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` | No | — | MySQL settings (all five must be set) |
+---
 
-Keep `.env`, `secret.key`, and the `storage/` folder out of source control.
-They are already listed in `.gitignore`.
+## 10. Known Limitations (Version 1)
 
-## API overview
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
-| POST | `/createacc` | Create an account |
-| POST | `/token` | Log in, returns access and refresh tokens |
-| POST | `/refresh` | Get a new access token |
-| POST | `/logout` | Revoke a refresh token |
-| GET | `/me` | Current user |
-| POST | `/files/upload` | Upload and encrypt a file |
-| GET | `/files/` | List owned and shared files |
-| GET | `/files/{id}` | Download a file (decrypted, hash checked) |
-| DELETE | `/files/{id}` | Delete a file you own |
-| POST | `/files/{id}/share` | Share a file with another user |
-| GET | `/files/{id}/permissions` | See who has access |
-| DELETE | `/files/{id}/share/{user_id}` | Remove a user's access |
-| POST / GET / DELETE | `/folders` | Create, list, and delete folders |
-
-Interactive API docs are available at `/docs` while the app is running.
-
-## Running tests
-
-```bash
-pip install -r requirements.txt
-pytest tests
-```
-
-The current tests cover authentication only. Encryption, file, and sharing
-tests still need to be written.
-
-## How encryption works
-
-1. On upload, the file bytes are encrypted with a Fernet key and saved under a
-   random UUID name in `STORAGE_DIR`.
-2. The SHA-256 hash of the plaintext is stored in the database.
-3. On download, the file is decrypted, its hash is recalculated, and the
-   download is refused if the hash does not match.
-
-Fernet authenticates the ciphertext, so tampering is detected during
-decryption. The stored hash is an extra check on the plaintext.
-
-## Limitations
-
-- **Key storage:** the encryption key is stored on the same disk as the
-  encrypted files. Anyone with access to the server can read the files. Moving
-  the key into AWS KMS is planned.
-- **Single instance:** SQLite and local file storage do not support multiple
-  servers. Planned: S3 for file storage and a managed database.
-- **Memory use:** files are read fully into memory for upload and download.
-- **No HTTPS in the default setup:** add a reverse proxy with TLS before any
-  public use.
-- **Limited tests:** only authentication is covered.
-
-## Roadmap
-
-- [ ] Move the encryption key to AWS KMS
-- [ ] Store encrypted files in S3
-- [ ] Stream large uploads and downloads
-- [ ] Store file sizes in the database instead of decrypting to measure them
-- [ ] Tests for encryption, files, and sharing
-- [ ] HTTPS with a domain name
-- [ ] Remove the old prototype scripts in `crypto/` (`main.py`, `file_manager.py`, `verify_integrity.py`)
-
+1. **Local-Only Single Node:** Version 1 is designed for a single machine running a local MySQL server and local filesystem storage.
+2. **Local Master Key:** The master encryption key is stored on the local filesystem (`secret.key`). In a multi-tenant production environment, a hardware security module (HSM) or dedicated key vault would be used.
+3. **Synchronous File I/O:** File uploads and downloads are read and decrypted locally in chunks/memory; very large files (> 500 MB) are capped to prevent local memory exhaustion.
