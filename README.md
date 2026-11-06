@@ -1,258 +1,186 @@
-# Secure Cloud Storage — Version 1 (Local-Only)
+# Secure Cloud Storage
 
-A secure, local-first encrypted file storage and collaboration application written in Python (FastAPI). Users can register accounts, establish secure cookie-backed sessions, upload files that are encrypted at rest with independent per-file keys, verify file integrity with SHA-256 upon download, organize files into folders, and share access with other registered users under granular read/write permissions.
+**Version 1 — Local implementation** · **Version 2 — Cloud deployment planned**
 
----
-
-## 1. Project Purpose & Architecture
-
-Secure Cloud Storage Version 1 is designed to provide local, privacy-focused file storage without dependencies on third-party cloud services (no AWS, S3, KMS, or OAuth2). It combines **envelope encryption** with **secure server-side session management** to ensure confidentiality, integrity, and non-impersonation.
-
-### Architectural Diagram
-
-```
-┌────────────────────────────────────────────────────────┐
-│             Web Browser (frontend/)                    │
-│   (index.html, dashboard.html, createacc.html, JS)     │
-└──────────────────────────┬─────────────────────────────┘
-                           │ HTTP (HttpOnly, SameSite Session Cookie)
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│               FastAPI Application (api/)               │
-│                                                        │
-│  ├── Routers:                                          │
-│  │    ├── auth.py     (Register, Login, Logout, /me)   │
-│  │    ├── files.py    (Upload, List, Download, Patch)  │
-│  │    ├── folders.py  (Create, List, Delete)           │
-│  │    └── shares.py   (Share, List Perms, Revoke)      │
-│  │                                                     │
-│  ├── Dependencies & Security (dependencies.py)         │
-│  └── Schemas & Validation (schemas.py)                 │
-└───────────────┬──────────────────────────┬─────────────┘
-                │                          │
-                ▼                          ▼
-┌──────────────────────────────┐ ┌───────────────────────┐
-│     Local MySQL Database     │ │   Local File System   │
-│  - users                     │ │  - storage/           │
-│  - auth_sessions (token hash)│ │    (unique UUIDs with │
-│  - stored_files (wrapped key)│ │     ciphertext only)  │
-│  - folders                   │ │  - secret.key         │
-│  - file_permissions          │ │    (master key)       │
-└──────────────────────────────┘ └───────────────────────┘
-```
+A FastAPI-based file storage application using MySQL, bcrypt password hashing, per-file encryption, and SHA-256 integrity verification. Version 1 is focused on the local implementation and security review. Cloud deployment is planned for Version 2.
 
 ---
 
-## 2. Core Features
+## 1. Project Overview
 
-- **Authentication & Sessions:**
-  - Registration with username validation (3–50 chars, alphanumeric + `_-`) and bcrypt password hashing (min 8 chars).
-  - Password verification during login.
-  - Server-side opaque session tokens (`secrets.token_urlsafe(32)`).
-  - Storage of SHA-256 hashes of session tokens in MySQL (`auth_sessions`).
-  - Session tokens issued via `HttpOnly`, `SameSite=Lax`, and `Secure` (when HTTPS) cookies.
-  - Expiration enforcement (24-hour default) and immediate database-backed session revocation on logout.
-  - Strict prevention of user impersonation: `X-Username` and arbitrary `Authorization` headers are not trusted for identity.
-- **Envelope File Encryption at Rest:**
-  - Each uploaded file generates an independent per-file Fernet encryption key.
-  - Plaintext data is encrypted using the file key before writing to disk.
-  - The per-file key is wrapped (encrypted) with a local master Fernet key (`secret.key`).
-  - Wrapped keys are stored securely alongside file metadata in MySQL.
-  - Plaintext files are never written to disk; filenames are randomized UUIDs (`uuid.uuid4().hex`).
-- **Cryptographic File Integrity:**
-  - Plaintext SHA-256 hash calculated during upload and stored in MySQL.
-  - SHA-256 verified in constant-time (`hmac.compare_digest`) upon download and decryption.
-  - Downloads fail and are rejected if ciphertext or metadata has been corrupted or tampered with.
-- **File Management:**
-  - Upload, download, rename, and delete files.
-  - Safe, atomic file writes using temporary files to prevent orphaned or partial files.
-  - Sanitization against path traversal (rejects `../`, null bytes).
-  - File size limits enforced (default 50 MB ceiling).
-- **Hierarchical Folder Management:**
-  - Nested folders with `parent_folder_id` relationships.
-  - Cycle detection prevents circular parent hierarchies.
-  - Prevention of non-empty folder deletion (rejects deleting folders containing subfolders or files).
-- **Granular File Sharing & Permissions:**
-  - File owners can share files with other registered users.
-  - Permission levels:
-    - **READ:** List shared files and download/decrypt them.
-    - **WRITE:** All READ rights + authorized file content replacement (`PUT /files/{file_id}/content`).
-    - **OWNER:** Rename, delete, share, and revoke access. Collaborators cannot delete or claim ownership.
+Secure Cloud Storage provides account registration, file upload and download, encrypted-at-rest storage, file organization, and sharing between registered users.
+
+### Architecture
+
+![Secure Cloud Storage — Version 1 architecture](docs/architecture-v1.svg)
+
+*Version 1 architecture: the FastAPI application connects to MySQL for metadata and the local filesystem for encrypted file contents. This is not the planned Version 2 cloud architecture.*
+
+### Main components
+
+- **Frontend:** Browser-based interface.
+- **API:** FastAPI application for authentication and file operations.
+- **Database:** MySQL stores users, file metadata, folders, and sharing permissions.
+- **File storage:** Local filesystem stores encrypted file contents.
+- **Cryptography:** Independent Fernet key per file, protected by a local master key.
+
+---
+
+## 2. Implemented Functionality
+
+- User registration with bcrypt password hashing.
+- Login credential verification.
+- File upload, listing, download, rename, and deletion.
+- Per-file encryption using Fernet.
+- Per-file encryption keys wrapped using a local master key.
+- SHA-256 integrity hash stored with file metadata and checked during download.
+- Folder creation and folder listing.
+- File sharing with READ and WRITE permission values.
+- Permission revocation.
+
+> **Authentication status:** Login verifies credentials, but the current implementation's protected-route identity handling is not yet production-grade. Do not treat the current authentication flow as secure session-based authentication until the audit findings below are fixed and retested.
 
 ---
 
 ## 3. Technology Stack
 
-- **Python:** 3.11+
-- **Backend Framework:** FastAPI, Starlette, Uvicorn
-- **Database & ORM:** MySQL (local), SQLAlchemy 2.0+
-- **Database Driver:** PyMySQL
-- **Cryptography & Security:** `cryptography` (Fernet symmetric encryption), `bcrypt` (password hashing), Python `hashlib` (SHA-256)
-- **Frontend:** Vanilla HTML5, CSS3, JavaScript (Fetch API with cookie sessions)
-- **Automated Testing:** `pytest`
+| Area | Technology |
+|---|---|
+| Language | Python |
+| API framework | FastAPI |
+| Database | MySQL |
+| ORM / database access | SQLAlchemy |
+| Database driver | PyMySQL |
+| Password hashing | bcrypt |
+| File encryption | Fernet via `cryptography` |
+| Integrity verification | SHA-256 |
+| ASGI server | Uvicorn |
+| Frontend | HTML, CSS, JavaScript |
 
 ---
 
-## 4. Local MySQL Configuration
+## 4. Encryption Design
 
-### Database Setup
+The application uses an envelope-encryption approach:
 
-1. Make sure MySQL Server (8.0+) is installed and running locally.
-2. Connect to MySQL and create the database:
+1. A new Fernet key is generated for each uploaded file.
+2. The file contents are encrypted with that per-file key.
+3. The per-file key is encrypted (wrapped) using the local master key.
+4. The encrypted file contents are written to local storage.
+5. The wrapped key and file metadata are stored in MySQL.
+6. During download, the application unwraps the file key, decrypts the file, and compares its SHA-256 hash with the stored hash.
 
-```sql
-CREATE DATABASE IF NOT EXISTS secure_cloud CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+The master key is currently managed as a local file. It must be protected separately from the encrypted file data and must not be committed to the repository.
+
+---
+
+## 5. Database
+
+The current data model includes:
+
+| Table | Purpose |
+|---|---|
+| `users` | Registered user accounts and password hashes |
+| `stored_files` | File metadata, integrity hash, and wrapped file key |
+| `folders` | Folder records and ownership |
+| `file_permissions` | Sharing permissions between users and files |
+| `refresh_tokens` | Model exists in the codebase; not currently used as an active authentication flow |
+
+---
+
+## 6. Run Locally
+
+### Prerequisites
+
+- Python
+- MySQL Server
+- Git
+
+### Install dependencies
+
+```bash
+python -m venv .venv
 ```
 
-3. Run the schema script or migration:
-   - Initial schema: `mysql -u root -p secure_cloud < database/secure_cloud.sql`
-   - Version 1 migrations: `mysql -u root -p secure_cloud < database/migrations/01_v1_migration.sql`
+On Windows PowerShell:
 
----
+```powershell
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
-## 5. Environment Variables
+### Configure environment
 
-Configure these variables in a `.env` file in the project root:
+Create a `.env` file in the project root and configure the MySQL connection and storage settings used by the application. Example:
 
 ```ini
-# MySQL Database Connection Settings
-DB_USER=root
+DB_USER=your_mysql_user
 DB_PASSWORD=your_mysql_password
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=secure_cloud
 
-# Optional direct database connection string (overrides DB_* if specified)
-# DATABASE_URL=mysql+pymysql://root:password@127.0.0.1:3306/secure_cloud
-
-# Storage and Encryption Configuration
 STORAGE_DIR=storage
 ENCRYPTION_KEY_FILE=secret.key
-MAX_UPLOAD_SIZE_BYTES=52428800
 ```
 
----
+Keep `.env`, database credentials, and `secret.key` out of version control.
 
-## 6. Installation & Execution
+### Start the API
 
-### 1. Create and Activate Virtual Environment
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-### 2. Install Dependencies
-
-```powershell
-pip install -r requirements.txt
-```
-
-### 3. Run the Application
-
-```powershell
+```bash
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The application is accessible at:
-- **Web Interface:** [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
-- **Interactive OpenAPI Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **Health Check:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- API root: http://127.0.0.1:8000/
+- Swagger UI: http://127.0.0.1:8000/docs
+- Health check: http://127.0.0.1:8000/health
 
 ---
 
-## 7. API Reference
+## 7. Security Audit — Version 1
 
-### Authentication (`api/routers/auth.py`)
+Version 1 includes security mechanisms such as bcrypt password hashing, per-file encryption, wrapped file keys, and SHA-256 integrity verification. A code-level review also identified issues that must be addressed before production use:
 
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| `POST` | `/createacc` | No | Register a new user account with bcrypt password |
-| `POST` | `/login` | No | Verify credentials, issue session, set HttpOnly cookie |
-| `POST` | `/logout` | Yes | Revoke server-side session token and clear cookie |
-| `GET` | `/me` | Yes | Return authenticated user details |
+| Finding | Current observation | Required action |
+|---|---|---|
+| Identity trust | Protected-route identity can be derived from caller-supplied headers such as `X-Username` / `Authorization` | Replace with server-validated authentication; never trust a caller-provided username as proof of identity |
+| Login and logout | Login verifies credentials but does not establish a secure server-side session; logout does not revoke one | Implement secure session creation, expiry, validation, and revocation |
+| Duplicate route | The file download path has duplicate route definitions | Keep one correctly implemented and tested download handler |
+| Permission enforcement | File access checks permission existence but do not consistently enforce READ versus WRITE semantics | Enforce the required permission level on each operation |
+| CORS | Wildcard origins are configured alongside credential support | Restrict origins to explicit trusted frontend origins |
+| Production readiness | Local master-key file and local storage are used | Introduce managed key protection, hardened configuration, and deployment controls |
 
-### Files (`api/routers/files.py`)
-
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| `POST` | `/files/upload` | Yes | Upload, encrypt, and store a file |
-| `GET` | `/files/` | Yes | List files owned by or shared with the user |
-| `GET` | `/files/{file_id}` | Yes | Download, decrypt, and verify SHA-256 integrity |
-| `PATCH` | `/files/{file_id}` | Owner | Rename file (path traversal validated) |
-| `DELETE` | `/files/{file_id}` | Owner | Delete file record and encrypted disk storage |
-| `PUT` | `/files/{file_id}/content` | Owner/Write | Replace file content with new encrypted version |
-
-### Folders (`api/routers/folders.py`)
-
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| `POST` | `/folders/` | Yes | Create folder (supports parent_folder_id) |
-| `GET` | `/folders/` | Yes | List folders owned by the authenticated user |
-| `DELETE` | `/folders/{folder_id}` | Owner | Delete folder (blocks non-empty folders) |
-
-### Sharing & Permissions (`api/routers/shares.py`)
-
-| Method | Path | Auth Required | Description |
-|---|---|---|---|
-| `POST` | `/files/{file_id}/share` | Owner | Grant or update read/write permission for a user |
-| `GET` | `/files/{file_id}/permissions` | Owner | View access list and collaborators for a file |
-| `DELETE` | `/files/{file_id}/share/{user_id}` | Owner | Revoke collaborator access |
+This section records an initial code review; it is **not a certification or a claim that the listed issues have been fixed**. Security testing and remediation must be completed and documented before production deployment.
 
 ---
 
-## 8. Encryption & Authentication Workflows
+## 8. Version Roadmap
 
-### Envelope Encryption Lifecycle
+### Version 1 — Local implementation and security audit
 
-1. **Upload:**
-   - Raw bytes read into memory (under size limit).
-   - Plaintext SHA-256 computed: `sha256_hash = hashlib.sha256(data).hexdigest()`.
-   - Independent 256-bit Fernet key generated for the file: `file_key = Fernet.generate_key()`.
-   - Data encrypted with `file_key`: `ciphertext = Fernet(file_key).encrypt(data)`.
-   - `file_key` wrapped using local master key: `wrapped_key = Fernet(master_key).encrypt(file_key)`.
-   - `ciphertext` written atomically to `storage/<uuid>.<ext>`.
-   - `wrapped_key` and metadata saved in `stored_files` table.
-2. **Download:**
-   - Authorization verified (user is owner or has read/write permission).
-   - `ciphertext` loaded from `storage/<uuid>.<ext>`.
-   - `file_key` unwrapped using local master key.
-   - Plaintext decrypted with `file_key`.
-   - Computed SHA-256 verified against stored hash in constant time (`hmac.compare_digest`).
-   - Plaintext streamed to client.
+- FastAPI backend with MySQL.
+- Local encrypted file storage.
+- File encryption and integrity verification.
+- File and folder operations.
+- Sharing and permission model.
+- Security review and remediation work.
 
-### Authentication Lifecycle
+### Version 2 — Cloud deployment (planned)
 
-1. **Registration:** Username validated against length and character sets; password hashed using `bcrypt.gensalt()`.
-2. **Login:** Credentials verified via `bcrypt.checkpw()`. A 256-bit cryptographically secure random token (`secrets.token_urlsafe(32)`) is generated.
-3. **Storage:** Only the SHA-256 hash of the session token is stored in `auth_sessions`.
-4. **Transport:** The raw token is sent to the browser in an `HttpOnly`, `SameSite=Lax` cookie.
-5. **Authentication Verification:** On every request, `get_current_user` extracts the cookie, computes its SHA-256 hash, verifies the session in MySQL, and ensures it is active and not expired.
-6. **Logout:** Session marked as `revoked=True` in database and cookie deleted from browser.
+**Cloud deployment has not been completed in Version 1.** The planned Version 2 work includes:
+
+- Deploying the application to AWS.
+- Moving file storage to Amazon S3.
+- Using AWS KMS for managed encryption-key protection.
+- Configuring a production-ready database and network architecture.
+- Enforcing HTTPS and secure authentication/session handling.
+- Applying OWASP-focused security testing and remediation.
+- Adding centralized logging, monitoring, and audit trails.
+- Automating infrastructure and deployment where appropriate.
 
 ---
 
-## 9. Automated Testing
+## 9. Project Objective
 
-The automated test suite runs against an isolated, temporary SQLite database and a sandboxed temporary storage directory, guaranteeing no side-effects on real local files or databases.
-
-Run the entire test suite:
-
-```powershell
-python -m pytest -v
-```
-
-### Test Coverage Highlights
-
-- **Authentication (`tests/test_auth.py`):** Registration, duplicate prevention, password validation, cookie issuance, bad passwords, 401 unauthenticated enforcement, header spoofing rejection, session expiration, and session revocation upon logout.
-- **Files (`tests/test_files.py`):** Encrypted disk write verification, file listing, download decryption, SHA-256 verification, corrupted ciphertext rejection, tampered hash rejection, rename validation, atomic deletion, and path traversal prevention.
-- **Folders (`tests/test_folders.py`):** Hierarchy creation, listing, invalid parent validation, rejection of deletion when containing subfolders or files, and clean deletion of empty folders.
-- **Permissions (`tests/test_permissions.py`):** Access rejection for unauthorized users, read-only permissions, write-permission updates, collaborator restriction from owner operations (rename/delete), access revocation, and rejection of self-sharing.
-
----
-
-## 10. Known Limitations (Version 1)
-
-1. **Local-Only Single Node:** Version 1 is designed for a single machine running a local MySQL server and local filesystem storage.
-2. **Local Master Key:** The master encryption key is stored on the local filesystem (`secret.key`). In a multi-tenant production environment, a hardware security module (HSM) or dedicated key vault would be used.
-3. **Synchronous File I/O:** File uploads and downloads are read and decrypted locally in chunks/memory; very large files (> 500 MB) are capped to prevent local memory exhaustion.
+The project is intended to demonstrate practical backend engineering and security concepts: authentication design, access control, encryption at rest, key management, data integrity, relational data modeling, and the progression from a local application to a cloud-deployed system.
